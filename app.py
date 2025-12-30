@@ -325,12 +325,27 @@ st.markdown("""
         border-color: #e5e7eb;
     }
     
-    /* Truncate long text in selectbox */
+    /* Allow full text in selectbox dropdown */
     .stSelectbox [data-baseweb="select"] span {
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        max-width: 100%;
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: unset !important;
+    }
+    
+    /* Wider dropdown menu */
+    .stSelectbox [data-baseweb="popover"] {
+        max-width: 100% !important;
+    }
+    
+    .stSelectbox [data-baseweb="menu"] {
+        max-height: 400px !important;
+    }
+    
+    .stSelectbox [data-baseweb="menu"] li {
+        white-space: normal !important;
+        word-wrap: break-word !important;
+        padding: 10px !important;
+        line-height: 1.4 !important;
     }
     
     /* Multiselect tags wrap */
