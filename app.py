@@ -398,7 +398,7 @@ def load_data():
     # Use relative paths for deployment
     df_all = pd.read_excel('All_FreeZones_Standardized.xlsx')
     df_matches_mfz = pd.read_excel('Activity_Matches_Semantic.xlsx')
-    df_matches_det = pd.read_excel('Activity_Matches_DET.xlsx')
+    df_matches_det = pd.read_csv('Activity_Matches_DET.csv.gz', compression='gzip')
     
     # Add Status column to MFZ matches if not present
     if 'Competitor_Status' not in df_matches_mfz.columns:
