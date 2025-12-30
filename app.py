@@ -328,24 +328,19 @@ st.markdown("""
     /* Allow full text in selectbox dropdown */
     .stSelectbox [data-baseweb="select"] span {
         white-space: normal !important;
-        overflow: visible !important;
-        text-overflow: unset !important;
     }
     
-    /* Wider dropdown menu */
-    .stSelectbox [data-baseweb="popover"] {
-        max-width: 100% !important;
-    }
-    
-    .stSelectbox [data-baseweb="menu"] {
-        max-height: 400px !important;
-    }
-    
-    .stSelectbox [data-baseweb="menu"] li {
+    /* Dropdown menu items - wrap text */
+    div[data-baseweb="popover"] li {
         white-space: normal !important;
-        word-wrap: break-word !important;
-        padding: 10px !important;
-        line-height: 1.4 !important;
+        word-break: break-word !important;
+        line-height: 1.5 !important;
+        padding: 12px 16px !important;
+        min-height: auto !important;
+    }
+    
+    div[data-baseweb="popover"] ul {
+        max-height: 500px !important;
     }
     
     /* Multiselect tags wrap */
