@@ -812,7 +812,7 @@ with tab1:
                             match.get('Competitor_Authority', '')
                         )
                         
-                        comp_auth = match['Competitor_Authority'] if pd.notna(match['Competitor_Authority']) and str(match['Competitor_Authority']).strip() != '' else ('Not Specified' if match['Competitor_Requires_Approval'] else 'None')
+                        comp_auth = match['Competitor_Authority'] if pd.notna(match['Competitor_Authority']) and str(match['Competitor_Authority']).strip() != '' else ('Not Disclosed' if match['Competitor_Requires_Approval'] else 'None')
                         comp_code = match.get('Competitor_Code', 'N/A')
                         activity_status = match.get('Competitor_Status', 'Active')
                         status_badge = ''
