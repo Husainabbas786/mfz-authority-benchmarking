@@ -738,7 +738,7 @@ with tab1:
                 </div>
                 <div class="mfz-detail">
                     <div class="mfz-label">Authority</div>
-                    <div class="mfz-value">{mfz_data['Authority_Code'] if pd.notna(mfz_data['Authority_Code']) else 'None'}</div>
+                    <div class="mfz-value">{mfz_data['Authority_Code'] if pd.notna(mfz_data['Authority_Code']) and str(mfz_data['Authority_Code']).strip() != '' else ('Not Specified' if mfz_data['Requires_Approval'] else 'None')}</div>
                 </div>
             </div>
             """, unsafe_allow_html=True)
@@ -774,7 +774,7 @@ with tab1:
                             reg_status = "Same Requirements"
                             badge_class = "badge-same"
                         
-                        comp_auth = match['Competitor_Authority'] if pd.notna(match['Competitor_Authority']) else 'None'
+                        comp_auth = match['Competitor_Authority'] if pd.notna(match['Competitor_Authority']) and str(match['Competitor_Authority']).strip() != '' else ('Not Specified' if match['Competitor_Requires_Approval'] else 'None')
                         comp_code = match.get('Competitor_Code', 'N/A')
                         activity_status = match.get('Competitor_Status', 'Active')
                         status_badge = ''
