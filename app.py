@@ -974,20 +974,18 @@ with tab4:
                                 </div>
                             </div>
                             <div style="margin-top: 0.5rem; font-size: 0.75rem; opacity: 0.9;">
-                                <span style="margin-right: 1rem;">🟢 Same: {same_count}</span>
-                                <span style="margin-right: 1rem;">🔴 Over: {over_count}</span>
-                                <span>🟡 Under: {under_count}</span>
+                                <span style="margin-right: 1rem;">Same: {same_count}</span>
+                                <span style="margin-right: 1rem;">Over: {over_count}</span>
+                                <span>Under: {under_count}</span>
                             </div>
                         </div>
                         """, unsafe_allow_html=True)
                         
                         # Table
-                        table_cols = ['MFZ_Name', 'Competitor_Code', 'Competitor_Name', 'Competitor_Authority', 'Match_Score', 'MFZ_Over_Regulating', 'MFZ_Under_Regulating']
+                        table_cols = ['MFZ_Code', 'MFZ_Name', 'Competitor_Code', 'Competitor_Name', 'Competitor_Authority', 'Match_Score']
                         comp_display = comp_data[table_cols].copy()
-                        comp_display.columns = [f'{base_fz} Activity', 'Code', 'Competitor Activity', 'Authority', 'Match', 'Over', 'Under']
+                        comp_display.columns = [f'{base_fz} Code', f'{base_fz} Activity', 'Comp Code', 'Competitor Activity', 'Authority', 'Match']
                         comp_display['Match'] = (comp_display['Match'] * 100).round(0).astype(int).astype(str) + '%'
-                        comp_display['Over'] = comp_display['Over'].map({True: '✓', False: ''})
-                        comp_display['Under'] = comp_display['Under'].map({True: '✓', False: ''})
                         
                         st.dataframe(comp_display, use_container_width=True, hide_index=True, height=200)
                         
