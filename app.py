@@ -19,6 +19,41 @@ if 'show_over_reg' not in st.session_state:
 if 'show_gap' not in st.session_state:
     st.session_state.show_gap = False
 
+def compare_authorities(mfz_requires_approval, mfz_authority, comp_requires_approval, comp_authority):
+    """
+    Compare MFZ and competitor authority requirements.
+    Returns: (status_text, badge_class)
+    """
+    # Helper to parse authority codes into a set
+    def parse_authorities(auth_str):
+        if pd.isna(auth_str) or str(auth_str).strip() == '':
+            return set()
+        # Split by comma and clean
+        codes = [code.strip() for code in str(auth_str).split(',') if code.strip()]
+        return set(codes)
+    
+    # Case 1: Neither requires approval
+    if not mfz_requires_approval and not comp_requires_approval:
+        return "No Approval Needed", "badge-same"
+    
+    # Case 2: MFZ requires approval but competitor doesn't
+    if mfz_requires_approval and not comp_requires_approval:
+        return "MFZ Over-regulating", "badge-over"
+    
+    # Case 3: Competitor requires approval but MFZ doesn't
+    if not mfz_requires_approval and comp_requires_approval:
+        return "MFZ Under-regulating", "badge-under"
+    
+    # Case 4: Both require approval - compare actual authority codes
+    mfz_auth_set = parse_authorities(mfz_authority)
+    comp_auth_set = parse_authorities(comp_authority)
+    
+    if mfz_auth_set == comp_auth_set:
+        return "Same Requirements", "badge-same"
+    else:
+        # Authorities differ (partial overlap or completely different)
+        return "Partial Match", "badge-partial"
+
 # Page config
 st.set_page_config(
     page_title="MFZ Authority Approval Benchmarking",
@@ -114,6 +149,11 @@ st.markdown("""
     .badge-under {
         background: #fef3c7;
         color: #92400e;
+    }
+    
+    .badge-partial {
+        background: #fef3c7;
+        color: #b45309;
     }
     
     .badge-inactive {
@@ -764,15 +804,13 @@ with tab1:
                 card_cols = st.columns(min(len(matches), 4))
                 for idx, (_, match) in enumerate(matches.head(4).iterrows()):
                     with card_cols[idx]:
-                        if match['MFZ_Over_Regulating']:
-                            reg_status = f"{base_fz} Over-regulating"
-                            badge_class = "badge-over"
-                        elif match['MFZ_Under_Regulating']:
-                            reg_status = f"{base_fz} Under-regulating"
-                            badge_class = "badge-under"
-                        else:
-                            reg_status = "Same Requirements"
-                            badge_class = "badge-same"
+                        # Use the new authority comparison function
+                        reg_status, badge_class = compare_authorities(
+                            match['MFZ_Requires_Approval'],
+                            match.get('MFZ_Authority', ''),
+                            match['Competitor_Requires_Approval'],
+                            match.get('Competitor_Authority', '')
+                        )
                         
                         comp_auth = match['Competitor_Authority'] if pd.notna(match['Competitor_Authority']) and str(match['Competitor_Authority']).strip() != '' else ('Not Specified' if match['Competitor_Requires_Approval'] else 'None')
                         comp_code = match.get('Competitor_Code', 'N/A')
