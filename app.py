@@ -926,48 +926,93 @@ with tab4:
             bulk_matches = bulk_matches[bulk_matches['Competitor_FZ'].isin(selected_fzs)]
         bulk_matches = bulk_matches[bulk_matches['Match_Score'] >= min_score]
         
-        # Summary
-        col1, col2, col3 = st.columns(3)
+        # Summary metrics
+        st.markdown("##### Summary")
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("Total Matches", len(bulk_matches))
+            st.metric("Activities Selected", len(activity_names))
         with col2:
-            st.metric("Over-regulating", len(bulk_matches[bulk_matches['MFZ_Over_Regulating'] == True]))
+            st.metric("Total Matches", len(bulk_matches))
         with col3:
+            st.metric("Over-regulating", len(bulk_matches[bulk_matches['MFZ_Over_Regulating'] == True]))
+        with col4:
             st.metric("Under-regulating", len(bulk_matches[bulk_matches['MFZ_Under_Regulating'] == True]))
         
-        # Sync button for reports
-        if st.button("📊 View in Over-Regulation & Gap Analysis tabs", use_container_width=True):
-            st.session_state.filtered_activities = activity_names
-            st.success(f"Filter applied! Check 'Over-Regulation Report' and 'Gap Analysis' tabs.")
+        st.markdown("---")
         
-        # Pivot table by activity and competitor
-        st.markdown("##### Comparison Matrix")
+        # Get unique competitors with matches
+        competitors_with_matches = bulk_matches['Competitor_FZ'].unique().tolist()
+        competitors_with_matches.sort()
         
-        pivot = bulk_matches.pivot_table(
-            index='MFZ_Name',
-            columns='Competitor_FZ',
-            values='Match_Score',
-            aggfunc='max'
-        ).round(2)
+        st.markdown("##### Results by Competitor")
+        st.caption(f"Data last updated: {LAST_UPDATED}")
         
-        st.dataframe(pivot, use_container_width=True)
+        # Create competitor cards in grid (2 per row)
+        for i in range(0, len(competitors_with_matches), 2):
+            cols = st.columns(2)
+            
+            for j, col in enumerate(cols):
+                if i + j < len(competitors_with_matches):
+                    competitor = competitors_with_matches[i + j]
+                    comp_data = bulk_matches[bulk_matches['Competitor_FZ'] == competitor].copy()
+                    
+                    over_count = len(comp_data[comp_data['MFZ_Over_Regulating'] == True])
+                    under_count = len(comp_data[comp_data['MFZ_Under_Regulating'] == True])
+                    same_count = len(comp_data[comp_data['Same_Status'] == True])
+                    
+                    with col:
+                        # Card header
+                        st.markdown(f"""
+                        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                                    padding: 1rem 1.5rem; 
+                                    border-radius: 12px 12px 0 0; 
+                                    color: white;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <span style="font-size: 1.25rem; font-weight: 600;">{competitor}</span>
+                                    <span style="font-size: 0.85rem; margin-left: 0.5rem; opacity: 0.9;">({len(comp_data)} matches)</span>
+                                </div>
+                            </div>
+                            <div style="margin-top: 0.5rem; font-size: 0.75rem; opacity: 0.9;">
+                                <span style="margin-right: 1rem;">🟢 Same: {same_count}</span>
+                                <span style="margin-right: 1rem;">🔴 Over: {over_count}</span>
+                                <span>🟡 Under: {under_count}</span>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # Table
+                        table_cols = ['MFZ_Name', 'Competitor_Code', 'Competitor_Name', 'Competitor_Authority', 'Match_Score', 'MFZ_Over_Regulating', 'MFZ_Under_Regulating']
+                        comp_display = comp_data[table_cols].copy()
+                        comp_display.columns = [f'{base_fz} Activity', 'Code', 'Competitor Activity', 'Authority', 'Match', 'Over', 'Under']
+                        comp_display['Match'] = (comp_display['Match'] * 100).round(0).astype(int).astype(str) + '%'
+                        comp_display['Over'] = comp_display['Over'].map({True: '✓', False: ''})
+                        comp_display['Under'] = comp_display['Under'].map({True: '✓', False: ''})
+                        
+                        st.dataframe(comp_display, use_container_width=True, hide_index=True, height=200)
+                        
+                        # Download button for this competitor
+                        csv_comp = comp_data.to_csv(index=False)
+                        st.download_button(
+                            label=f"📥 Download {competitor}",
+                            data=csv_comp,
+                            file_name=f"{base_fz}_vs_{competitor}.csv",
+                            mime="text/csv",
+                            key=f"download_{competitor}"
+                        )
+                        
+                        st.markdown("<br>", unsafe_allow_html=True)
         
-        # Detailed table
-        st.markdown("##### Detailed Results")
-        display_cols = ['MFZ_Name', 'MFZ_Authority', 'Competitor_FZ', 'Competitor_Name', 'Competitor_Authority', 'Match_Score', 'MFZ_Over_Regulating', 'MFZ_Under_Regulating']
-        bulk_display = bulk_matches[display_cols].copy()
-        bulk_display.columns = [f'{base_fz} Activity', f'{base_fz} Authority', 'Competitor', 'Competitor Activity', 'Comp Authority', 'Match', 'Over-reg', 'Under-reg']
-        bulk_display['Match'] = (bulk_display['Match'] * 100).round(0).astype(int).astype(str) + '%'
-        
-        st.dataframe(bulk_display, use_container_width=True, hide_index=True, height=400)
-        
-        # Download
-        csv = bulk_matches.to_csv(index=False)
+        # Master download at the bottom
+        st.markdown("---")
+        st.markdown("##### Download All Data")
+        csv_all = bulk_matches.to_csv(index=False)
         st.download_button(
-            label="Download Bulk Report",
-            data=csv,
-            file_name=f"{base_fz}_Bulk_Comparison.csv",
-            mime="text/csv"
+            label="📥 Download Complete Report (All Competitors)",
+            data=csv_all,
+            file_name=f"{base_fz}_Bulk_Comparison_All.csv",
+            mime="text/csv",
+            use_container_width=True
         )
     else:
         st.info("Select activities above to begin bulk comparison")
