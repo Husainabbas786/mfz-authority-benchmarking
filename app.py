@@ -3,7 +3,7 @@ import pandas as pd
 import os
 
 # Data last updated date - change this when you update the database
-LAST_UPDATED = "2024-12-30"
+LAST_UPDATED = "05.01.2026"
 
 # Initialize session state for recent searches
 if 'recent_bulk_searches' not in st.session_state:
@@ -798,11 +798,11 @@ with tab1:
                         """, unsafe_allow_html=True)
                 
                 st.markdown(f"#### Detailed Comparison")
-                st.caption(f"Data last updated: {LAST_UPDATED}")
                 table_data = matches[['Competitor_FZ', 'Competitor_Code', 'Competitor_Name', 'Competitor_Status', 'Competitor_Requires_Approval', 'Competitor_Authority', 'Match_Score']].copy()
                 table_data.columns = ['Free Zone', 'Code', 'Activity Name', 'Status', 'Requires Approval', 'Authority', 'Match Score']
                 table_data['Requires Approval'] = table_data['Requires Approval'].map({True: 'Yes', False: 'No'})
                 table_data['Match Score'] = (table_data['Match Score'] * 100).round(0).astype(int).astype(str) + '%'
+                table_data['Last Updated'] = LAST_UPDATED
                 st.dataframe(table_data, use_container_width=True, hide_index=True)
             else:
                 st.info("No matches found for this activity with current filters.")
@@ -945,7 +945,6 @@ with tab4:
         competitors_with_matches.sort()
         
         st.markdown("##### Results by Competitor")
-        st.caption(f"Data last updated: {LAST_UPDATED}")
         
         # Create competitor cards in grid (2 per row)
         for i in range(0, len(competitors_with_matches), 2):
@@ -986,6 +985,7 @@ with tab4:
                         comp_display = comp_data[table_cols].copy()
                         comp_display.columns = [f'{base_fz} Code', f'{base_fz} Activity', 'Comp Code', 'Competitor Activity', 'Authority', 'Match']
                         comp_display['Match'] = (comp_display['Match'] * 100).round(0).astype(int).astype(str) + '%'
+                        comp_display['Last Updated'] = LAST_UPDATED
                         
                         st.dataframe(comp_display, use_container_width=True, hide_index=True, height=200)
                         
