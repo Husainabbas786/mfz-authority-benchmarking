@@ -2,6 +2,9 @@ import streamlit as st
 import pandas as pd
 import os
 
+# Data last updated date - change this when you update the database
+LAST_UPDATED = "2024-12-30"
+
 # Initialize session state for recent searches
 if 'recent_bulk_searches' not in st.session_state:
     st.session_state.recent_bulk_searches = []
@@ -794,9 +797,10 @@ with tab1:
                         </div>
                         """, unsafe_allow_html=True)
                 
-                st.markdown("#### Detailed Comparison")
-                table_data = matches[['Competitor_FZ', 'Competitor_Name', 'Competitor_Status', 'Competitor_Requires_Approval', 'Competitor_Authority', 'Match_Score']].copy()
-                table_data.columns = ['Free Zone', 'Activity Name', 'Status', 'Requires Approval', 'Authority', 'Match Score']
+                st.markdown(f"#### Detailed Comparison")
+                st.caption(f"Data last updated: {LAST_UPDATED}")
+                table_data = matches[['Competitor_FZ', 'Competitor_Code', 'Competitor_Name', 'Competitor_Status', 'Competitor_Requires_Approval', 'Competitor_Authority', 'Match_Score']].copy()
+                table_data.columns = ['Free Zone', 'Code', 'Activity Name', 'Status', 'Requires Approval', 'Authority', 'Match Score']
                 table_data['Requires Approval'] = table_data['Requires Approval'].map({True: 'Yes', False: 'No'})
                 table_data['Match Score'] = (table_data['Match Score'] * 100).round(0).astype(int).astype(str) + '%'
                 st.dataframe(table_data, use_container_width=True, hide_index=True)
