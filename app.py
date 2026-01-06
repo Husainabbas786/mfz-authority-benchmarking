@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import os
+import numpy as np
+from openai import OpenAI
 
 # Data last updated date - change this when you update the database
 LAST_UPDATED = "05.01.2026"
@@ -18,6 +20,141 @@ if 'show_over_reg' not in st.session_state:
     st.session_state.show_over_reg = False
 if 'show_gap' not in st.session_state:
     st.session_state.show_gap = False
+
+# Initialize OpenAI client for embeddings (lazy initialization)
+@st.cache_resource
+def get_openai_client():
+    """Get OpenAI client - uses API key from environment variable"""
+    # Try to get API key from environment variable
+    api_key = os.getenv('OPENAI_API_KEY')
+    
+    # Also check Streamlit secrets (for Streamlit Cloud deployment)
+    if not api_key:
+        try:
+            api_key = st.secrets.get('OPENAI_API_KEY')
+        except:
+            pass
+    
+    if not api_key:
+        st.error("⚠️ OpenAI API key not found!")
+        st.error("Please set the OPENAI_API_KEY environment variable or add it to Streamlit secrets.")
+        st.info("""
+        **To set environment variable:**
+        - Windows: `set OPENAI_API_KEY=your_key_here`
+        - Linux/Mac: `export OPENAI_API_KEY=your_key_here`
+        
+        **For Streamlit Cloud:**
+        - Go to Settings → Secrets and add: `OPENAI_API_KEY = "your_key_here"`
+        """)
+        st.stop()
+    
+    return OpenAI(api_key=api_key)
+
+def get_embeddings_batch(client, texts, batch_size=100):
+    """Get embeddings in batches using OpenAI API"""
+    all_embeddings = []
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i:i+batch_size]
+        try:
+            response = client.embeddings.create(
+                model="text-embedding-3-small",
+                input=batch
+            )
+            batch_embeddings = [item.embedding for item in response.data]
+            all_embeddings.extend(batch_embeddings)
+        except Exception as e:
+            st.error(f"Error generating embeddings for batch {i//batch_size + 1}: {str(e)}")
+            raise
+    return all_embeddings
+
+def cosine_similarity(a, b):
+    """Calculate cosine similarity between two vectors"""
+    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+
+@st.cache_data
+def load_base_embeddings(df_base, base_fz):
+    """Load or generate embeddings for base free zone (MFZ or DET)"""
+    # Check if embeddings file exists
+    embeddings_file = f'{base_fz.lower()}_embeddings.npy'
+    if os.path.exists(embeddings_file):
+        try:
+            embeddings = np.load(embeddings_file)
+            if len(embeddings) == len(df_base):
+                return embeddings
+        except:
+            pass
+    
+    # Generate embeddings if file doesn't exist or doesn't match
+    client = get_openai_client()
+    base_texts = [str(row['Activity_Name']) for _, row in df_base.iterrows()]
+    
+    with st.spinner(f"Generating {base_fz} embeddings (this may take a minute)..."):
+        embeddings = get_embeddings_batch(client, base_texts)
+        embeddings = np.array(embeddings)
+        # Save for future use
+        try:
+            np.save(embeddings_file, embeddings)
+        except:
+            pass  # If can't save, continue anyway
+    
+    return embeddings
+
+def match_third_party_activities(input_activities, df_base, base_embeddings, base_fz, threshold=0.50):
+    """
+    Match third-party activity names against base free zone activities using embeddings.
+    
+    Args:
+        input_activities: List of activity names to match
+        df_base: DataFrame of base free zone activities (MFZ or DET)
+        base_embeddings: Pre-computed embeddings for base activities
+        base_fz: Name of base free zone ('MFZ' or 'DET')
+        threshold: Minimum match score (0-1)
+    
+    Returns:
+        DataFrame with matches
+    """
+    if not input_activities:
+        return pd.DataFrame()
+    
+    client = get_openai_client()
+    
+    # Generate embeddings for input activities
+    with st.spinner(f"Generating embeddings for {len(input_activities)} input activities..."):
+        input_embeddings = get_embeddings_batch(client, input_activities)
+        input_embeddings = np.array(input_embeddings)
+    
+    # Find matches
+    all_matches = []
+    
+    with st.spinner("Finding matches..."):
+        for idx, input_activity in enumerate(input_activities):
+            input_emb = input_embeddings[idx]
+            
+            # Calculate similarity with all base activities
+            similarities = np.array([cosine_similarity(input_emb, base_emb) for base_emb in base_embeddings])
+            
+            # Get matches above threshold
+            match_indices = np.where(similarities >= threshold)[0]
+            
+            for match_idx in match_indices:
+                base_row = df_base.iloc[match_idx]
+                all_matches.append({
+                    'Input_Activity': input_activity,
+                    f'{base_fz}_Code': base_row['Activity_Code'],
+                    f'{base_fz}_Name': base_row['Activity_Name'],
+                    f'{base_fz}_Category': base_row.get('Category', 'N/A'),
+                    f'{base_fz}_Requires_Approval': base_row.get('Requires_Approval', False),
+                    f'{base_fz}_Authority': base_row.get('Authority_Code', '') if pd.notna(base_row.get('Authority_Code', '')) else 'None',
+                    'Match_Score': round(similarities[match_idx], 3)
+                })
+    
+    if not all_matches:
+        return pd.DataFrame()
+    
+    df_matches = pd.DataFrame(all_matches)
+    df_matches = df_matches.sort_values('Match_Score', ascending=False)
+    
+    return df_matches
 
 def compare_authorities(mfz_requires_approval, mfz_authority, comp_requires_approval, comp_authority):
     """
@@ -53,6 +190,66 @@ def compare_authorities(mfz_requires_approval, mfz_authority, comp_requires_appr
     else:
         # Authorities differ (partial overlap or completely different)
         return "Partial Match", "badge-partial"
+
+def get_embeddings_batch(client, texts, batch_size=100, progress_callback=None):
+    """Get embeddings in batches with optional progress callback"""
+    all_embeddings = []
+    total_batches = (len(texts) - 1) // batch_size + 1
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i:i+batch_size]
+        if progress_callback:
+            progress_callback(i // batch_size + 1, total_batches)
+        try:
+            response = client.embeddings.create(
+                model="text-embedding-3-small",
+                input=batch
+            )
+            batch_embeddings = [item.embedding for item in response.data]
+            all_embeddings.extend(batch_embeddings)
+        except Exception as e:
+            st.error(f"Error generating embeddings for batch {i//batch_size + 1}: {str(e)}")
+            raise
+    return all_embeddings
+
+def cosine_similarity(a, b):
+    """Calculate cosine similarity between two vectors"""
+    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+
+@st.cache_data
+def load_mfz_embeddings(df_mfz, api_key):
+    """Load or generate MFZ embeddings"""
+    # Check if embeddings file exists
+    embeddings_file = 'mfz_embeddings.npy'
+    mfz_texts_file = 'mfz_activity_names.npy'
+    
+    if os.path.exists(embeddings_file) and os.path.exists(mfz_texts_file):
+        # Load pre-computed embeddings
+        embeddings = np.load(embeddings_file)
+        saved_texts = np.load(mfz_texts_file, allow_pickle=True)
+        current_texts = [str(row['Activity_Name']) for _, row in df_mfz.iterrows()]
+        
+        # Check if saved embeddings match current activities
+        if len(saved_texts) == len(current_texts) and all(s == c for s, c in zip(saved_texts, current_texts)):
+            return embeddings, True
+    
+    # Generate new embeddings
+    client = OpenAI(api_key=api_key)
+    mfz_texts = [str(row['Activity_Name']) for _, row in df_mfz.iterrows()]
+    
+    progress_placeholder = st.empty()
+    def progress_callback(batch_num, total_batches):
+        progress_placeholder.info(f"Generating embeddings: Batch {batch_num}/{total_batches}")
+    
+    embeddings = get_embeddings_batch(client, mfz_texts, progress_callback=progress_callback)
+    progress_placeholder.empty()
+    
+    embeddings = np.array(embeddings)
+    
+    # Save for future use
+    np.save(embeddings_file, embeddings)
+    np.save(mfz_texts_file, np.array(mfz_texts, dtype=object))
+    
+    return embeddings, False
 
 # Page config
 st.set_page_config(
@@ -655,7 +852,7 @@ if st.session_state.show_gap:
     st.markdown("---")
 
 # Tabs
-tab1, tab4 = st.tabs(["Activity Search", "Bulk Compare"])
+tab1, tab4, tab5 = st.tabs(["Activity Search", "Bulk Compare", "Third-Party Requests"])
 
 # Tab 1: Activity Search
 with tab1:
@@ -792,14 +989,6 @@ with tab1:
                 under_count = len(matches[matches['MFZ_Under_Regulating'] == True])
                 total_matches = len(matches)
                 
-                if over_count > under_count:
-                    insight = f"{base_fz} requires MORE approvals than {over_count} of {total_matches} matched competitors."
-                elif under_count > over_count:
-                    insight = f"{base_fz} requires FEWER approvals than {under_count} of {total_matches} matched competitors."
-                else:
-                    insight = f"{base_fz} approval requirements are aligned with {same_count} of {total_matches} matched competitors."
-                
-                st.markdown(f'<div class="insight-bar"><div class="insight-text">{insight}</div></div>', unsafe_allow_html=True)
                 
                 card_cols = st.columns(min(len(matches), 4))
                 for idx, (_, match) in enumerate(matches.head(4).iterrows()):
@@ -1052,3 +1241,163 @@ with tab4:
         )
     else:
         st.info("Select activities above to begin bulk comparison")
+
+# Tab 5: Third-Party Requests
+with tab5:
+    st.markdown("#### Third-Party Requests")
+    st.markdown(f"Upload activity names from external sources and find matching {base_fz} activities")
+    
+    # Match score threshold slider
+    st.markdown("##### Settings")
+    third_party_threshold = st.slider(
+        "Minimum Match Score",
+        min_value=0.50,
+        max_value=1.0,
+        value=0.50,
+        step=0.05,
+        help="Higher score = more confident match. Lower score = more results but less accurate."
+    )
+    
+    st.markdown("---")
+    
+    # File upload section
+    st.markdown("##### Upload Activity Names")
+    uploaded_file = st.file_uploader(
+        "Upload Excel file with 'Activity Name' column",
+        type=['xlsx', 'xls'],
+        help="Excel file must contain a column named 'Activity Name' with activity names to match"
+    )
+    
+    input_activities = []
+    
+    if uploaded_file is not None:
+        try:
+            df_upload = pd.read_excel(uploaded_file)
+            # Clean column names (remove extra spaces, case insensitive)
+            df_upload.columns = df_upload.columns.str.strip()
+            
+            # Find Activity Name column (flexible matching)
+            name_col = None
+            for col in df_upload.columns:
+                if col.lower() in ['activity name', 'activity_name', 'activity', 'name']:
+                    name_col = col
+                    break
+            
+            if name_col:
+                # Extract activity names
+                input_activities = df_upload[name_col].dropna().astype(str).str.strip().tolist()
+                input_activities = [act for act in input_activities if act and act.lower() != 'nan']
+                
+                if input_activities:
+                    st.success(f"Found {len(input_activities)} activity names in uploaded file")
+                    with st.expander("Preview uploaded activities"):
+                        st.write(input_activities[:20])  # Show first 20
+                        if len(input_activities) > 20:
+                            st.caption(f"... and {len(input_activities) - 20} more")
+                else:
+                    st.warning("No valid activity names found in the 'Activity Name' column")
+            else:
+                st.error("Could not find 'Activity Name' column. Please ensure your Excel file has a column named 'Activity Name'.")
+                st.info("Available columns in your file:")
+                st.write(df_upload.columns.tolist())
+        except Exception as e:
+            st.error(f"Error reading file: {str(e)}")
+            st.info("Please ensure the file is a valid Excel file (.xlsx or .xls)")
+    
+    # Process matches
+    if input_activities:
+        st.markdown("---")
+        st.markdown("##### Results")
+        
+        try:
+            # Get base activities based on selected universe
+            df_base = df_all[df_all['Free_Zone'] == base_fz].copy().reset_index(drop=True)
+            
+            # Load or generate base embeddings
+            base_embeddings = load_base_embeddings(df_base, base_fz)
+            
+            # Match activities
+            results_df = match_third_party_activities(
+                input_activities,
+                df_base,
+                base_embeddings,
+                base_fz,
+                threshold=third_party_threshold
+            )
+            
+            if len(results_df) > 0:
+                # Summary metrics
+                st.markdown("##### Summary")
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Input Activities", len(input_activities))
+                with col2:
+                    st.metric("Total Matches", len(results_df))
+                with col3:
+                    code_col = f'{base_fz}_Code'
+                    st.metric(f"Unique {base_fz} Activities", results_df[code_col].nunique())
+                with col4:
+                    avg_score = results_df['Match_Score'].mean()
+                    st.metric("Avg Match Score", f"{avg_score*100:.1f}%")
+                
+                st.markdown("---")
+                
+                # Results table - Group by Input Activity (in Excel order), then sort by Match Score within each group
+                st.markdown("##### Matches")
+                display_df = results_df.copy()
+                
+                # Create a mapping of input activity to its order in the Excel file
+                activity_order = {activity: idx for idx, activity in enumerate(input_activities)}
+                
+                # Add order column for sorting
+                display_df['_order'] = display_df['Input_Activity'].map(activity_order)
+                
+                # Sort: First by Excel order (to preserve input order), then by Match Score (descending within each group)
+                display_df = display_df.sort_values(['_order', 'Match_Score'], ascending=[True, False])
+                
+                # Remove the temporary order column
+                display_df = display_df.drop(columns=['_order'])
+                
+                display_df['Match Score'] = (display_df['Match_Score'] * 100).round(1).astype(str) + '%'
+                
+                # Get column names dynamically based on base_fz
+                code_col = f'{base_fz}_Code'
+                name_col = f'{base_fz}_Name'
+                category_col = f'{base_fz}_Category'
+                approval_col = f'{base_fz}_Requires_Approval'
+                authority_col = f'{base_fz}_Authority'
+                
+                display_df['Requires Approval'] = display_df[approval_col].map({True: 'Yes', False: 'No'})
+                
+                # Reorder columns for display
+                display_cols = ['Input_Activity', code_col, name_col, category_col, 
+                               'Requires Approval', authority_col, 'Match Score']
+                display_df = display_df[display_cols]
+                display_df.columns = ['Input Activity', f'{base_fz} Code', f'{base_fz} Activity Name', 
+                                     'Category', 'Requires Approval', 'Authority', 'Match Score']
+                
+                st.dataframe(display_df, use_container_width=True, hide_index=True, height=400)
+                
+                # Download button
+                st.markdown("---")
+                csv = results_df.to_csv(index=False)
+                st.download_button(
+                    label="📥 Download Results (CSV)",
+                    data=csv,
+                    file_name=f"{base_fz}_Third_Party_Matches.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+            else:
+                st.warning(f"No matches found above {third_party_threshold*100:.0f}% threshold. Try lowering the threshold.")
+                st.info("Tip: Lower the 'Minimum Match Score' slider to see more results (may include less accurate matches)")
+        
+        except Exception as e:
+            st.error(f"Error during matching: {str(e)}")
+            st.info("Please check your OpenAI API key and try again. If the error persists, contact support.")
+            import traceback
+            with st.expander("Error Details"):
+                st.code(traceback.format_exc())
+    
+    else:
+        st.info("Upload an Excel file with 'Activity Name' column to begin matching")
