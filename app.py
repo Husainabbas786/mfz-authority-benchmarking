@@ -189,7 +189,7 @@ def compare_authorities(mfz_requires_approval, mfz_authority, comp_requires_appr
         return "Same Requirements", "badge-same"
     else:
         # Authorities differ (partial overlap or completely different)
-        return "Partial Match", "badge-partial"
+        return "Partially Same", "badge-partial"
 
 def get_embeddings_batch(client, texts, batch_size=100, progress_callback=None):
     """Get embeddings in batches with optional progress callback"""
