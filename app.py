@@ -1172,7 +1172,10 @@ with tab4:
         competitors_with_matches.sort()
         
         st.markdown("##### Results by Competitor")
-        
+
+        # Accumulator of per-competitor wide tables, used for the master download
+        all_wide_dfs = []
+
         # Create competitor cards in grid (2 per row)
         for i in range(0, len(competitors_with_matches), 2):
             cols = st.columns(2)
@@ -1207,17 +1210,39 @@ with tab4:
                         </div>
                         """, unsafe_allow_html=True)
                         
-                        # Table
-                        table_cols = ['MFZ_Code', 'MFZ_Name', 'Competitor_Code', 'Competitor_Name', 'Competitor_Authority', 'Match_Score']
-                        comp_display = comp_data[table_cols].copy()
-                        comp_display.columns = [f'{base_fz} Code', f'{base_fz} Activity', 'Comp Code', 'Competitor Activity', 'Authority', 'Match']
-                        comp_display['Match'] = (comp_display['Match'] * 100).round(0).astype(int).astype(str) + '%'
-                        comp_display['Last Updated'] = LAST_UPDATED
-                        
-                        st.dataframe(comp_display, use_container_width=True, hide_index=True, height=200)
-                        
-                        # Download button for this competitor
-                        csv_comp = comp_data.to_csv(index=False)
+                        # Wide format: one row per selected base activity (in selection order),
+                        # top 3 matches against this competitor spread across columns.
+                        MAX_MATCHES = 3
+                        wide_rows = []
+                        for activity_name in activity_names:  # selection order preserved
+                            act_rows = comp_data[comp_data['MFZ_Name'] == activity_name]
+                            if len(act_rows) > 0:
+                                act_code = act_rows.iloc[0]['MFZ_Code']
+                            else:
+                                fb = df_all[(df_all['Free_Zone'] == base_fz) & (df_all['Activity_Name'] == activity_name)]
+                                act_code = fb.iloc[0]['Activity_Code'] if len(fb) > 0 else ''
+
+                            top = act_rows.sort_values('Match_Score', ascending=False).head(MAX_MATCHES)
+                            row = {f'{base_fz} Code': act_code, f'{base_fz} Activity': activity_name}
+                            for k in range(MAX_MATCHES):
+                                n = k + 1
+                                if k < len(top):
+                                    m = top.iloc[k]
+                                    row[f'Match_{n}_Code'] = m['Competitor_Code']
+                                    row[f'Match_{n}_Name'] = m['Competitor_Name']
+                                    row[f'Match_{n}_Score'] = f"{m['Match_Score']*100:.0f}%"
+                                else:
+                                    row[f'Match_{n}_Code'] = ''
+                                    row[f'Match_{n}_Name'] = ''
+                                    row[f'Match_{n}_Score'] = ''
+                            wide_rows.append(row)
+
+                        comp_wide = pd.DataFrame(wide_rows)
+
+                        st.dataframe(comp_wide, use_container_width=True, hide_index=True, height=200)
+
+                        # Download button for this competitor (wide format)
+                        csv_comp = comp_wide.to_csv(index=False)
                         st.download_button(
                             label=f"📥 Download {competitor}",
                             data=csv_comp,
@@ -1225,13 +1250,20 @@ with tab4:
                             mime="text/csv",
                             key=f"download_{competitor}"
                         )
-                        
+
                         st.markdown("<br>", unsafe_allow_html=True)
+
+                        # Track for master download (prepend Competitor column)
+                        comp_wide_for_master = comp_wide.copy()
+                        comp_wide_for_master.insert(0, 'Competitor', competitor)
+                        all_wide_dfs.append(comp_wide_for_master)
         
-        # Master download at the bottom
+        # Master download at the bottom (wide format; per-competitor tables concatenated
+        # with a leading Competitor column)
         st.markdown("---")
         st.markdown("##### Download All Data")
-        csv_all = bulk_matches.to_csv(index=False)
+        master_wide = pd.concat(all_wide_dfs, ignore_index=True) if all_wide_dfs else pd.DataFrame()
+        csv_all = master_wide.to_csv(index=False)
         st.download_button(
             label="📥 Download Complete Report (All Competitors)",
             data=csv_all,
@@ -1342,45 +1374,46 @@ with tab5:
                 
                 st.markdown("---")
                 
-                # Results table - Group by Input Activity (in Excel order), then sort by Match Score within each group
+                # Results table - Wide format: one row per input activity (in upload order),
+                # top 5 matches per activity spread across columns, sorted by Match_Score desc.
                 st.markdown("##### Matches")
-                display_df = results_df.copy()
-                
-                # Create a mapping of input activity to its order in the Excel file
-                activity_order = {activity: idx for idx, activity in enumerate(input_activities)}
-                
-                # Add order column for sorting
-                display_df['_order'] = display_df['Input_Activity'].map(activity_order)
-                
-                # Sort: First by Excel order (to preserve input order), then by Match Score (descending within each group)
-                display_df = display_df.sort_values(['_order', 'Match_Score'], ascending=[True, False])
-                
-                # Remove the temporary order column
-                display_df = display_df.drop(columns=['_order'])
-                
-                display_df['Match Score'] = (display_df['Match_Score'] * 100).round(1).astype(str) + '%'
-                
-                # Get column names dynamically based on base_fz
+
                 code_col = f'{base_fz}_Code'
                 name_col = f'{base_fz}_Name'
                 category_col = f'{base_fz}_Category'
-                approval_col = f'{base_fz}_Requires_Approval'
                 authority_col = f'{base_fz}_Authority'
-                
-                display_df['Requires Approval'] = display_df[approval_col].map({True: 'Yes', False: 'No'})
-                
-                # Reorder columns for display
-                display_cols = ['Input_Activity', code_col, name_col, category_col, 
-                               'Requires Approval', authority_col, 'Match Score']
-                display_df = display_df[display_cols]
-                display_df.columns = ['Input Activity', f'{base_fz} Code', f'{base_fz} Activity Name', 
-                                     'Category', 'Requires Approval', 'Authority', 'Match Score']
-                
-                st.dataframe(display_df, use_container_width=True, hide_index=True, height=400)
-                
+
+                MAX_MATCHES = 5
+                wide_rows = []
+                for input_activity in input_activities:  # iteration preserves upload order
+                    activity_matches = results_df[results_df['Input_Activity'] == input_activity]
+                    activity_matches = activity_matches.sort_values('Match_Score', ascending=False).head(MAX_MATCHES)
+
+                    row = {'Input_Activity': input_activity}
+                    for i in range(MAX_MATCHES):
+                        n = i + 1
+                        if i < len(activity_matches):
+                            m = activity_matches.iloc[i]
+                            row[f'Match_{n}_Code'] = m[code_col]
+                            row[f'Match_{n}_Name'] = m[name_col]
+                            row[f'Match_{n}_Category'] = m[category_col]
+                            row[f'Match_{n}_Authority'] = m[authority_col]
+                            row[f'Match_{n}_Score'] = f"{m['Match_Score']*100:.1f}%"
+                        else:
+                            row[f'Match_{n}_Code'] = ''
+                            row[f'Match_{n}_Name'] = ''
+                            row[f'Match_{n}_Category'] = ''
+                            row[f'Match_{n}_Authority'] = ''
+                            row[f'Match_{n}_Score'] = ''
+                    wide_rows.append(row)
+
+                wide_df = pd.DataFrame(wide_rows)
+
+                st.dataframe(wide_df, use_container_width=True, hide_index=True, height=400)
+
                 # Download button
                 st.markdown("---")
-                csv = results_df.to_csv(index=False)
+                csv = wide_df.to_csv(index=False)
                 st.download_button(
                     label="📥 Download Results (CSV)",
                     data=csv,
