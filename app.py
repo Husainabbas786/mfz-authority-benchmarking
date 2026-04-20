@@ -4,8 +4,20 @@ import os
 import numpy as np
 from openai import OpenAI
 
-# Data last updated date - change this when you update the database
-LAST_UPDATED = "05.01.2026"
+# Last updated dates per free zone
+LAST_UPDATED_DATES = {
+    'MFZ': '20.04.2026',
+    'IFZA': '20.04.2026',
+    'DET': '03.02.2026',
+    'DSBH': '05.01.2026',
+    'DMCC': '05.01.2026',
+    'TECOM': '05.01.2026',
+    'DIFC': '05.01.2026',
+    'JAFZA': '05.01.2026',
+    'DWTC': '05.01.2026',
+    'DAFZA': '05.01.2026',
+}
+LAST_UPDATED = '20.04.2026'  # Default for general display
 
 # Initialize session state for recent searches
 if 'recent_bulk_searches' not in st.session_state:
@@ -1029,7 +1041,7 @@ with tab1:
                 table_data.columns = ['Free Zone', 'Code', 'Activity Name', 'Status', 'Requires Approval', 'Authority', 'Match Score']
                 table_data['Requires Approval'] = table_data['Requires Approval'].map({True: 'Yes', False: 'No'})
                 table_data['Match Score'] = (table_data['Match Score'] * 100).round(0).astype(int).astype(str) + '%'
-                table_data['Last Updated'] = LAST_UPDATED
+                table_data['Last Updated'] = table_data['Free Zone'].map(LAST_UPDATED_DATES).fillna(LAST_UPDATED)
                 st.dataframe(table_data, use_container_width=True, hide_index=True)
             else:
                 st.info("No matches found for this activity with current filters.")
